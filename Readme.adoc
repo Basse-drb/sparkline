@@ -1,0 +1,634 @@
+== SparkLine
+
+Le projet SparkLine a été développé du 5 au 18 octobre 2020 par Chablis Dalil, étudiant en deuxième année de BTS SIO.
+
+L'objectif était de développer une application métier (exploitation de documents CSV) sous la forme d'une application web utilisant le framework php `Symfony`.
+
+*Quelques mots clés :* Php, Symfony, bootstrap, Csv, Fusion, Téléchargerment, Tests unitaires...
+
+=== Contexte
+
+La société SPARK-LINE, créatrice de la ligne de vêtements, souhaite constituer un fichier client unique, au format CSV, à partir de deux fichiers d'exportation transmis par ses filiales française et allemande.
+
+Les fichiers sources : `[french-client.csv] (~3000 clients)` et `german-client.csv (~2000 clients)` ont même structure (même type de colonnes).
+
+La fusion de ces 2 fichiers sera effectuée par un algorithme séquentiel ou entrelacé.
+
+Considérons les fichiers suivants, respectivement de 4 et 2 éléments :
+
+    Fic A : * * * *
+    Fic B : ° °
+
+|===
+|Entrelacé | Sequentiel
+
+|*  |*
+|°  |*
+|*  |*
+|°  |*
+|*  |°
+|°  |°
+|===
+
+
+Le fichier résultant de la fusion sera composé d’un sous-ensemble des colonnes&nbsp;:
+
+    Gender, Title, Surname, GivenName, EmailAddress, Birthday, TelephoneNumber, CCType, CCNumber, CVV2, CCExpires, StreetAddress, City, ZipCode, CountryFull, Centimeters, Kilograms, Vehicle, Latitude, Longitude.
+
+Des vérifications doivent également être effectuées :
+
+* Sélection d'adultes uniquement.
+* Certains clients ont des incohérences de valeurs entre la taille en inch et celle en cm. Il sera donc nécessaire de les extraire.
+* Des doublons de numéros de cartes de crédit se sont glissés dans les données, ce qui remet en cause l'intégrité des données de certains clients (dans le système en question, une carte de crédit ne peut pas être partagée). Les clients qui ne peuvent pas être identifiés par leur numéro de carte de crédit ils devront donc être retirés.
+
+Dans un deuxième temps, le département R&D de l'entreprise souhaiterait obtenir ces données sous la forme d'une base de données relationnelle.
+
+L'entreprise envisage de se lancer dans des produits en liens avec l’automobile.
+
+Il s'agit à partir d’un fichier client CSV issu de la fusion, et transmis par l’utilisateur (upload), de peupler une base de données de tests correspondant au modèle (3 tables : client, vehicule et marque).
+
+L'utilisateur peut être en mesure de renouveler son action avec des données nouvelles ou mises à jour. Le chargement de nouvelles données ne doit pas générer de doublons dans la base de données.
+
+Une représentation graphique des données statistiques (répartition des marques parmi les clients) est attendue sur le client tiers. Les données utilisées pour cette représentation seront extraites de la base de données.
+
+*Voir :* `https://ocapuozzo.github.io/mission-etl-csv/`
+
+=== Prérequis
+
+* Php 7 ou une version supérieur;
+* Composer;
+* Symfony;
+* Un système de gestion de base de données.
+
+=== Installation
+
+Ouvrez votre terminal de console, exécutez la commande :
+```
+git clone https://gitlab.com/dalil01/guesswhat.git
+```
+Entrez dans le répertoire du projet et lancez la commande suivante pour lire le `composer.json`, résoudre les dépendances et les installer dans le `vendor`.
+```
+composer install
+```
+
+=== Configuration
+
+Pour accéder aux services, un fichier ".env.local" devra être ajouté à la racine du projet.
+Celui-ci doit contenir la ligne suivante :
+```
+DATABASE_URL="mysql://name:password@127.0.0.1:3306/sparkline?serverVersion=mariadb-10.3.22"
+```
+Ajoutez votre nom et votre mot de passe.
+
+Changer la version de mariadb si elle n'est pas 10.3.22
+
+Si votre système de gestion de base de données n'est pas mariadb, ajoutez le vôtre.
+
+* Création de la base de données
+```
+symfony console d:d:c
+```
+* Création des différentes tables
+```
+symfony console d:m:m
+```
+
+=== Let's go ! &#128540;
+
+'''
+Accédez à l'url fournie dans la console lorsque vous exécutez la commande :
+```
+symfony serve -d
+```
+Bienvenue sur la page d'accueil de l'application !
+
+Des identifiants de connexion sont alors nécessaires pour se connecter à l'espace d'administration.
+
+=== Ajout d'un utilisateur
+Un utilisateur par défaut peut être ajouté automatiquement en exécutant la commande :
+```
+symfony console d:f:l
+```
+En effet, une fixture a été créé afin d'ajouter un utilisateur par défaut dans la table admin de la base de données.
+
+*Localisation :* `src/DataFixtures/AppFixtures.php`.
+
+[, php]
+----
+public function load(ObjectManager $manager)
+    {
+        $user = new Admin();
+        $user->setUsername("root");
+        $user->setPassword($this->passwordEncoder->encodePassword($user, "root"));
+        $manager->persist($user);
+        $manager->flush();
+    }
+----
+
+L'entité `Admin` a été créée (`src/Entity/Admin.php`), elle contient les attributs  :
+
+* Id;
+* Username;
+* Password.
+
+Et implemente UserInterface.
+
+Afin de mettre en place un système d'authentification sécurisé, quelques modifications ont dû être apportées au fichier `security.yaml` (config/packages/security.yaml)`.
+
+* Utilisation de *Guard* `src/security/LoginFormAuthenticator.php`.
+
+La route "/" utilise donc la méthode login située dans `src/Controller/SecurityControler.php`.
+
+Ce controlleur dispose de seulement deux méthodes :
+
+* `login` pour la connexion;
+* Et `logout` pour la deconnexion.
+
+=== Connexion
+
+Identifiant : root
+
+Mot de passe : root
+
+Vous arrivez alors sur la page `/show/customers`, on y reviendra !
+
+=== Fusion
+Accédez à la route `/merge`, le présent formulaire permet de fusionner 2 fichiers csv.
+
+Les fichiers `small french-client` et `small german-client` sont disponibles dans le répertoire `data` du projet à des fins de test.
+
+Nous pouvons alors :
+
+* Sélectionner le type de fusion a effectuée ;
+* Entrer 2 fichiers Csv différents ;
+* Choisir le nom du fichier résultant de la fusion.
+* Et télécharger ce fichier.
+
+Le contrôleur `AdminController` chargera donc par sa méthode `merge` de récupérer la requête soumise, et de faire appel aux différents services mis en place.
+
+*Localisation :* `src/Controller/AdminController.php`.
+
+[, php]
+----
+    /**
+     * @Route("merge", name="merge")
+     */
+    public function merge(Request $request)
+    {
+        [...]
+
+        $merge = new Merge($csv1Descriptor, $csv2Descriptor, $mergeCsvName);
+
+        [...]
+
+        if ($csvMergeForm["type"]->getData() == "Interlaced") {
+            $mergeInterlaced = $merge->interlaced();
+            if ($mergeInterlaced){
+                $merge->downloadCsv();
+            }else{
+                $this->addFlash("error", $mergeNotBeenPerfomerdMsg);
+                return $redirectTothisRoute;
+            }
+        }
+
+         [...]
+    }
+----
+
+Selon le type de fusion choisi, la méthode du même nom contenue dans la classe Merge (Service) est employée.
+Si la fusion est réussie, le téléchargement est lancé.
+
+L'utilisation d'une bibliothèque a facilité l'analyse, l'écriture et le filtrage des fichiers CSV.
+
+* Lien : https://csv.thephpleague.com/9.0/
+
+[, php]
+----
+    namespace App\Service;
+
+    use League\Csv\Reader;
+    use League\Csv\Writer;
+
+    [...]
+
+    class Merge
+    {
+         /**
+             * Merge constructor.
+             * @param $csv1Descriptor
+             * @param $csv2Descriptor
+             * @param $mergeCsvName
+             * @throws \League\Csv\CannotInsertRecord
+             * @throws \League\Csv\Exception
+             */
+            public function __construct($csv1Descriptor, $csv2Descriptor, $mergeCsvName = "default-name"){
+                $this->columns = array_map('strtolower', Csv::getSpecificColumns());
+                $this->csv1 = Reader::createFromPath($csv1Descriptor)->setHeaderOffset(0);
+                $this->csv2 = Reader::createFromPath($csv2Descriptor)->setHeaderOffset(0);
+                $this->mergeCsv = Writer::createFromFileObject(new \SplTempFileObject());
+                $this->mergeCsv->insertOne(Csv::getSpecificColumns());
+                $this->mergeCsvName = $mergeCsvName;
+                $this->arrayOfCsvCcNumber = Csv::getArrayOfCsvCcNumber($this->csv1->getRecords(), $this->csv2->getRecords());
+                $this->insert = 0;
+            }
+
+            /**
+             * @param $csvData
+             * @throws \League\Csv\CannotInsertRecord
+             */
+            private function insertIntoCsvForSequential($csvData){
+                foreach ($csvData as $data) {
+                    $data = array_change_key_case($data, CASE_LOWER);
+
+                    $content = [];
+                    foreach ($this->columns as $column) {
+                        $content[] = $data[$column];
+                    }
+
+                    if(Verification::isMajor($data["birthday"]) && Verification::isValidSize($data["feetinches"], $data["centimeters"]) && !in_array($data["ccnumber"],  Csv::getDuplicateValueInArray($this->arrayOfCsvCcNumber))) {
+                        $this->mergeCsv->insertOne($content);
+                        $this->insert = 1;
+                    }
+                }
+            }
+
+            /**
+             * @return bool
+             */
+            public function sequential()
+            {
+                $this->insertIntoCsvForSequential($this->csv1->getRecords());
+                $this->insertIntoCsvForSequential($this->csv2->getRecords());
+                return ($this->insert === 1) ? true : false;
+            }
+
+        /**
+         * @return bool
+         * @throws \League\Csv\CannotInsertRecord
+         * @throws \League\Csv\Exception
+         */
+        public function interlaced()
+        {
+
+            $max = ($this->csv1->count() > $this->csv2->count()) ? $this->csv1->count() : $this->csv2->count();
+
+            $csv1Index = 0;
+            $csv2Index = 0;
+
+            do{
+                $customerIsInserted = false;
+                while($customerIsInserted == false && $csv1Index < $this->csv1->count()){
+                    $content = [];
+                    foreach ($this->columns as $column) {
+                        $data = array_change_key_case($this->csv1->fetchOne($csv1Index), CASE_LOWER);
+                        $content[] = $data[$column];
+                    }
+                    if(Verification::isMajor($data["birthday"]) && Verification::isValidSize($data["feetinches"], $data["centimeters"]) && !in_array($data["ccnumber"],  Csv::getDuplicateValueInArray($this->arrayOfCsvCcNumber))) {
+                        $this->mergeCsv->insertOne($content);
+                        $customerIsInserted = true;
+                        $this->insert = 1;
+                    }
+                    $csv1Index++;
+                }
+
+                $customerIsInserted = false;
+                while($customerIsInserted == false && $csv2Index < $this->csv2->count()){
+                    $content = [];
+                    foreach ($this->columns as $column) {
+                        $data = array_change_key_case($this->csv2->fetchOne($csv2Index), CASE_LOWER);
+                        $content[] = $data[$column];
+                    }
+                    if(Verification::isMajor($data["birthday"]) && Verification::isValidSize($data["feetinches"], $data["centimeters"]) && !in_array($data["ccnumber"],  Csv::getDuplicateValueInArray($this->arrayOfCsvCcNumber))) {
+                        $this->mergeCsv->insertOne($content);
+                        $customerIsInserted = true;
+                        $this->insert = 1;
+                    }
+                    $csv2Index++;
+                }
+
+                $max--;
+            }while($max > 0);
+
+            return ($this->insert === 1) ? true : false;
+        }
+
+   }
+----
+
+Pour tester le bon fonctionnement de ses méthodes, la classe de test "MergeTest" a été créée.
+
+[, php]
+----
+    namespace App\Service;
+
+    use League\Csv\Reader;
+    use League\Csv\Writer;
+
+    [...]
+
+    class Merge
+    {
+        protected function setUp()
+        {
+            $this->frenchDataCsv = __DIR__."tests/../csvFiles/small-french-data.csv";
+            $this->germanDataCsv = __DIR__."tests/../csvFiles/small-german-data.csv";
+            $this->emptyCsv = __DIR__."tests/../csvFiles/empty-data.csv";
+        }
+
+        public function testGetColumns(){
+            $merge = new Merge($this->frenchDataCsv, $this->germanDataCsv);
+            $this->assertEquals($merge->getColumns(),  array_map('strtolower', Csv::getSpecificColumns()));
+            $this->assertTrue($merge->getColumns()[4] ===  array_map('strtolower', Csv::getSpecificColumns())[4]);
+        }
+
+        public function testGetMergeCsv(){
+            $merge = new Merge($this->frenchDataCsv, $this->germanDataCsv);
+            $this->assertEquals($merge->getMergeCsv()->getPathname(), "php://temp");
+        }
+
+        public function testGetMergeCsvName(){
+            $merge = new Merge($this->frenchDataCsv, $this->germanDataCsv,"small-german-french");
+            $this->assertEquals($merge->getMergeCsvName(), "small-german-french");
+        }
+
+        public function testGetArrayOfCsvCcNumber(){
+            $merge = new Merge($this->germanDataCsv, $this->frenchDataCsv);
+            $this->assertEquals($merge->getArrayOfCsvCcNumber()[0], 4539448007296299);
+            $this->assertEquals($merge->getArrayOfCsvCcNumber()[17], 5226880624178234);
+            $this->assertEquals($merge->getArrayOfCsvCcNumber()[48], 5509320230651074);
+        }
+
+        public function testSequentialWithEmptyCsv(){
+            $merge = new Merge( $this->emptyCsv,  $this->emptyCsv);
+            $this->assertFalse($merge->sequential());
+        }
+
+        public function testSequentialWithSameCsv(){
+            $merge = new Merge($this->frenchDataCsv, $this->frenchDataCsv);
+            $this->assertFalse($merge->sequential()); // False car les cc number seront en doublons donc on ne passe pas les vérifications.
+        }
+
+        public function testSequentialWithDifferentCsv(){
+            $merge = new Merge($this->frenchDataCsv, $this->germanDataCsv);
+            $this->assertTrue($merge->sequential());
+
+            $content = explode(',', $merge->getMergeCsv()->getContent());
+            $this->assertEquals( $content[1], "Title");
+            $this->assertEquals( $content[8], "CCNumber");
+            $this->assertEquals( $content[12], "City");
+            $this->assertEquals( $content[33], "France");
+            $this->assertEquals( $content[52], "France");
+            $this->assertEquals( $content[71], "France");
+            $this->assertEquals( $content[90], "Germany");
+            $this->assertEquals( $content[109], "Germany");
+
+            $merge = new Merge($this->germanDataCsv, $this->frenchDataCsv);
+            $this->assertTrue($merge->sequential());
+
+            $content = explode(',', $merge->getMergeCsv()->getContent());
+            $this->assertEquals( $content[33], "Germany");
+            $this->assertEquals( $content[52], "Germany");
+            $this->assertEquals( $content[71], "France");
+            $this->assertEquals( $content[90], "France");
+            $this->assertEquals( $content[109], "France");
+        }
+
+        public function testInterlacedWithEmptyCsv(){
+            $merge = new Merge($this->emptyCsv, $this->emptyCsv);
+            $this->assertFalse($merge->interlaced());
+        }
+
+        public function testInterlacedWithSameCsv(){
+            $merge = new Merge($this->germanDataCsv, $this->germanDataCsv);
+            $this->assertFalse($merge->interlaced());
+        }
+
+        public function testInterlacedWithDifferentCsv(){
+            $merge = new Merge($this->germanDataCsv, $this->frenchDataCsv);
+            $this->assertTrue($merge->interlaced());
+
+            $content = explode(',', $merge->getMergeCsv()->getContent());
+            $this->assertEquals( $content[0], "Gender");
+            $this->assertEquals( $content[16], "Kilograms");
+            $this->assertEquals( $content[33], "Germany");
+            $this->assertEquals( $content[52], "France");
+            $this->assertEquals( $content[71], "Germany");
+            $this->assertEquals( $content[90], "France");
+            $this->assertEquals( $content[109], "France");
+        }
+    }
+----
+
+Les fichiers de test sont ensuite placés dans `tests/csvFiles` pour vérifier le comportement des différentes méthodes.
+
+La classe de fusion utilise d'autres *Services* qui ont également leurs méthodes testées (`tests/Service`).
+
+*2 Services contenant des méthodes statiques :*
+
+* `Csv.php` (`src/Sevice/Csv.php`) contient les méthodes :
+** `getSpecificColumns()` renvoie les colonnes souhaitées lors de la fusion.
+** `getCsvHeader()` retourne l'en-tête d'un csv reçu en paramètre.
+** `isValidCsvHeader()` vérifie si l'en-tête reçu en paramètre correspond aux colonnes souhaitées.
+** `getValidCsvName()` modifie le nom d'un csv en remplaçant les caractères spéciaux par "-".
+** `getArrayOfCsvCcNumber()` renvoie un tableau contenant les identifiants bancaires des différents clients.
+** `getDuplicateValueInArray()` renvoie un tableau contenant les valeurs trouvées en double dans un tableau reçu en paramètre.
+
+* `Verification.php` (`src/Sevice/Verification.php`) contient les méthodes :
+** `isValidDate()` vérifie que la date reçue dans en paramètre correspond au format de date souhaité.
+** `isMajor()` contrôle la majorité du client en récupérant sa date de naissance.
+** `isValidSize()` vérifie si la taille du client en pouces correspond à sa taille en cm.
+
+Lors de la fusion, les clients qui n'ont pas passé les vérifications ne sont pas ajoutés au fichier de fusion.
+
+Pour récupérer ses clients, accéder à la route `/invalid/customers`.
+Vous pouvez alors décider de récupérer un csv contenant uniquement les clients qui ne sont pas majeurs, ou dont la taille ou les identifiants bancaires sont invalides...
+
+Retrouvez dans `AdminController` la méthode `invalidCustomers`
+
+Dans `src/Service` : `Invalid.php`.
+
+Ensuite, les tests dans : `tests/Service` : `InvalidTest.php`.
+
+=== Etl
+
+En accédant à la route `/add/customers` (Contrôleur : `AdminController`, Méthode : `addCustomers`), vous pouvez directement ajouter des clients à partir de votre fichier de fusion ou même de votre fichier principal à la base de données.
+
+[, php]
+----
+    /**
+     * @Route("add/customers", name="add_customers")
+     * @throws \League\Csv\Exception
+     */
+    public function addCustomers(Request $request)
+    {
+        [...]
+
+          if ($csvForm->isSubmitted() && $csvForm->isValid()){
+                $csv = Reader::createFromPath($csvForm["csv"]->getData())->setHeaderOffset(0);
+
+                $etl = Etl::etl($csv, $this->entityManager, $this->customerRepository, $this->markRepository);
+
+                if($etl["isValidColumns"] === 0) { $this->addFlash("error", "The csv does not contain all columns necessary for insertion in base !"); }
+                if($etl["customerExist"] === 0) { $this->addFlash("error", "One or more customer(s) had already been added !"); }
+                if($etl["isMajor"] === 0){ $this->addFlash("error", "Some customers were not of legal age, so they were not registered in the database !"); }
+                if($etl["isValidSize"] === 0){ $this->addFlash("error", "The size in inches and centimeters of some customers did not match, they were not recorded in the database !"); }
+                if($etl["isValidBankIdentidiers"] === 0) { $this->addFlash("error", "Some customers have the same bank identifiers, they have not been registered in the database !"); }
+                if($etl["added"] === 0) { $this->addFlash("error", "No customers have been added !"); }
+                if($etl["added"] === 1) {
+                    $this->entityManager->flush();
+                    $this->addFlash("success", "Valid users have been successfully added !");
+                    return $this->redirectToRoute("admin_show_customers");
+                }
+
+                return $this->redirectToRoute("admin_add_customers");
+          }
+
+        [...]
+    }
+----
+
+Cette méthode appellera le service `Etl` (`src/Service/Etl.php`) qui s'occupera d'insérer les clients qui ne sont pas encore enregistrés et dont les données sont valables.
+
+[, php]
+----
+    /**
+     * @param $entityManager
+     * @param $data
+     */
+    private function addCustomers($entityManager, $data, $markRepository){
+        $customer = new Customer();
+        $customer->setGender($data["gender"]);
+        $customer->setTitle($data["title"]);
+        $customer->setSurname($data["surname"]);
+        $customer->setGivenName($data["givenname"]);
+        $customer->setEmailAddress($data["emailaddress"]);
+        $customer->setBirthday($data["birthday"]);
+        $customer->setTelephoneNumber($data["telephonenumber"]);
+        $customer->setCCType($data["cctype"]);
+        $customer->setCcNumber($data["ccnumber"]);
+        $customer->setCvv2($data["cvv2"]);
+        $customer->setCCExpires($data["ccexpires"]);
+        $customer->setStreetAddress($data["streetaddress"]);
+        $customer->setCity($data["city"]);
+        $customer->setZipCode($data["zipcode"]);
+        $customer->setCountryFull($data["countryfull"]);
+        $customer->setCentimeters($data["centimeters"]);
+        $customer->setKilograms($data["kilograms"]);
+        $explodeVehicle = \explode(" ", $data["vehicle"]);
+        $vehicle = new Vehicle();
+        $vehicle->setYear($explodeVehicle[0]);
+        $vehicle->setModel($explodeVehicle[2]);
+        if ($markRepository->findOneBy(["name" => $explodeVehicle[1]])){
+            $vehicleMark = $markRepository->findOneBy(["name" => $explodeVehicle[1]]);
+        }else{
+            $vehicleMark = new Mark();
+            $vehicleMark->setName($explodeVehicle[1]);
+        }
+        $vehicleMark->addVehicle($vehicle);
+        $customer->setVehicle($vehicle);
+        $vehicle->setMark($vehicleMark);
+        $vehicle->addCustomer($customer);
+        $customer->setLatitude($data["latitude"]);
+        $customer->setLongitude($data["longitude"]);
+        $entityManager->persist($customer);
+    }
+
+    /**
+     * Extract transform load
+     * @param $csvData
+     * @param $entityManager
+     * @param $customerRepository
+     * @return int[]
+     */
+    public static function etl($csv, $entityManager, $customerRepository, $markRepository){
+        $isValidColumns = 1;
+        $customerExist = 1;
+        $isMajor = 1;
+        $isValidSize = 1;
+        $isValidBankIdentidiers = 1;
+        $added = 0;
+
+        // Contraintes utilisateur existe a rajouter (utilisation clé ccnumber
+        if(Csv::isValidCsvHeader($csv->getHeader())){
+            foreach($csv->getRecords() as $data){
+                $data = array_change_key_case($data, CASE_LOWER);
+                if (!$customerRepository->findOneBy(["ccNumber" => $data["ccnumber"]])) {
+                    if (Verification::isMajor($data["birthday"])) {
+                        if (array_key_exists("feetinches", $data)) {
+                            if (Verification::isValidSize($data["feetinches"], $data["centimeters"])) {
+                                Etl::addCustomers($entityManager, $data, $markRepository);
+                                $added = 1;
+                            } else {
+                                $isValidSize = 0;
+                            }
+                        } else {
+                            if (!in_array($data["ccnumber"], Csv::getDuplicateValueInArray(Csv::getArrayOfCsvCcNumber($csv)))) {
+                                Etl::addCustomers($entityManager, $data, $markRepository);
+                                $added = 1;
+                            } else {
+                                $isValidBankIdentidiers = 0;
+                            }
+                        }
+                    } else {
+                        $isMajor = 0;
+                    }
+                }else{
+                    $customerExist = 0;
+                }
+            }
+        }else{
+            $isValidColumns = 0;
+        }
+
+        return ["isValidColumns" => $isValidColumns, "customerExist" => $customerExist, "isMajor" => $isMajor, "isValidSize" => $isValidSize, "isValidBankIdentidiers" => $isValidBankIdentidiers, "added" => $added];
+    }
+----
+
+Pour terminer le parcours `/show/customers` permet d'afficher les données contenues dans les différentes tables de la base de données.
+
+Une recherche peut être effectuée afin de rechercher les clients en fonction de la marque de leurs véhicules.
+
+`AdminController` (Méthode: `showCustomers`)
+
+[, php]
+----
+
+    /**
+     * @Route("show/customers", name="show_customers")
+     */
+    public function showCustomers(Request $request)
+    {
+        $searchForm = $this->createForm(SearchType::class);
+        $searchForm->handleRequest($request);
+
+        $customers = $this->customerRepository->findCustomersOrderByVehicleMark($searchForm["mark"]->getData());
+
+        return $this->render('admin/show_customers.html.twig', [
+            "current_page" => "admin_show_customers",
+            "searchForm" => $searchForm->createView(),
+            "headers" => Csv::getSpecificColumns(),
+            "customers" => $customers
+        ]);
+    }
+
+----
+
+*/public/app.js*
+
+[, js]
+----
+
+ // Search customers according to their vehicle marks
+    let searchMark = $("#mark")
+    searchMark.on('change', () => {
+        window.location.href = "customers?mark="+searchMark.val()
+    })
+
+----
+
+
+=== Conclusion
+La principale difficulté de ce projet réside essentiellement dans le peu de temps disponible pour sa réalisation.
+La bibliothèque League/CSV m'a permis de gagner beaucoup de temps et donc de faciliter mon travail.
+Une grande partie de mon temps a été consacrée à la méthode "interlaced" (`src/Service/Merge.php`) afin de l'optimiser au mieux.
+Réalisée à la dernière minute, la recherche par marque en javascript mériterait d'être améliorée.
